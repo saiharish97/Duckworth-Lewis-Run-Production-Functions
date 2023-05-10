@@ -45,13 +45,14 @@ def mean_max_runs_at_given_wicket(data, w):
 
 class DLModel():
 
-    def __init__(self,parameters, matches_list, train_runs,train_wickets,train_overs,data_util):
+    def __init__(self,parameters, matches_list, train_runs,train_wickets,train_overs,data_util,constraints):
         self.parameters=parameters
         self.matches_list=matches_list
         self.train_runs=train_runs
         self.train_wickets=train_wickets
         self.train_overs=train_overs
         self.data_util=data_util
+        self.constraints=constraints
 
 
     def Z_function(self,Z_0, L, u):
@@ -78,21 +79,25 @@ class DLModel():
         return mse
     
     def optimize_error(self):
-        # methods=["BFGS", "L-BFGS-B","COBYLA","CG"]
-        # MSE -> BFGS :     ->  4989.93537674943             <---------------------------
-        # MSE -> L-BFGS-B : ->  4989.939429672349
-        # MSE -> COBYLA :   ->  5077.119336230687
-        # MSE -> CG :       ->  4989.935380690543
-        methods=["BFGS"]
+        # methods = ['COBYLA', 'SLSQP', 'trust-constr']
+        # MSE ->  :  COBYLA   ->  5077.119336230687            
+        # MSE ->  : -> SLSQP  4989.935425213922            <---------------------------
+        # MSE ->  : trust-constr  ->  4994.192160361856
+       
+        methods=["SLSQP"]
+        
         min_mse= sys.maxsize
+        best_method=None
         for m_type in methods:
-            opter = opt.minimize(self.error_function, self.parameters, method=m_type)
+            print("Trying to fit through " + m_type)
+            opter = opt.minimize(self.error_function, self.parameters, method=m_type, constraints=self.constraints)
             print("MSE -> " +m_type +" : -> " + str(opter.fun))
             if min_mse>opter.fun:
+                best_method=m_type
                 min_mse=opter.fun
                 L_out = opter.x[-1]
                 Z0_out = opter.x[:-1]
-
+        print("Best Minimization Algo Method: "+best_method)
         print("Z0s: ")
         print(Z0_out)
         print("L: ")
@@ -137,6 +142,13 @@ if __name__=="__main__":
         parameters.append(mean_max_runs_at_given_wicket(cleaned_data, i))
     parameters.append(7)
 
+    z0_constraints = []
+    for i in range(9):
+        z0_constraints.append({'type': 'ineq', 'fun': lambda x: x[i+1] - x[i]})
+    z0_constraints.append({'type': 'ineq', 'fun': lambda x: x[0]})
+    l_constraint = {'type': 'ineq', 'fun': lambda x: x[-1]}
+    constraints = z0_constraints + [l_constraint]
+
     data_util=DataUtil(cleaned_data)
     model=DLModel(
         parameters=parameters,
@@ -144,7 +156,8 @@ if __name__=="__main__":
         train_runs=train_runs,
         train_wickets=train_wickets,
         train_overs=train_overs,
-        data_util=data_util
+        data_util=data_util,
+        constraints=constraints
     )
     Z0,L=model.optimize_error()
     u = np.linspace(0, 50, num=300)
